@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyPrint Typing Biometrics</title>
+<!--
+  KeyPrint frontend.
+  This page only RECORDS key timings and DRAWS results.
+  All machine learning happens in Python (app/server.py) through /api/... calls.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: an oscilloscope console. Typing is a signal; the page is the instrument reading it. */
+:root{
+  --bg:#090d13; --panel:#0f151f; --line:#1d2735; --ink:#e7edf5; --muted:#8796ab;
+  --amber:#ffb347;  /* your live attempt */
+  --cyan:#5ee6ff;   /* stored profile */
+  --ok:#5dfc9b; --bad:#ff5a6a;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
+  --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);background-image:linear-gradient(rgba(94,230,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(94,230,255,.035) 1px,transparent 1px);background-size:28px 28px;color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+.wrap{max-width:1240px;margin:0 auto;padding:0 20px}
+h1,h2,h3{text-wrap:balance;margin:0}
+button,select,input{font:inherit;color:inherit}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:18px 0 8px}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:900;font-size:26px;letter-spacing:.06em}
+.brand .dot{width:12px;height:12px;border-radius:50%;background:var(--amber);box-shadow:0 0 14px var(--amber);animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:12px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:rgba(15,21,31,.8)}
+.chip b{color:var(--ink);font-weight:500}
+.chip.warn{border-color:rgba(255,90,106,.5);color:#ffb3bb}
+.hero{padding:22px 0 26px;display:grid;grid-template-columns:1.3fr 1fr;gap:28px;align-items:end}
+.hero h1{font-family:var(--display);font-weight:900;text-transform:uppercase;font-size:clamp(44px,7.2vw,96px);line-height:.88;letter-spacing:.01em}
+.hero h1 .a{color:var(--amber);text-shadow:0 0 28px rgba(255,179,71,.35)}
+.hero p{color:var(--muted);max-width:46ch;margin:0}
+.hero p strong{color:var(--ink);font-weight:600}
+.console{display:grid;grid-template-columns:1.25fr 1fr;gap:18px}
+.panel{background:linear-gradient(180deg,rgba(17,24,35,.96),rgba(12,17,25,.96));border:1px solid var(--line);border-radius:14px;padding:18px;position:relative}
+.panel h2{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:.04em;text-transform:uppercase}
+.label{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px;background:#0b1119}
+.tab{border:0;background:transparent;padding:8px 16px;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:13px;color:var(--muted)}
+.tab[aria-selected="true"]{background:var(--amber);color:#1a1205;font-weight:700}
+.tab:hover:not([aria-selected="true"]){color:var(--ink)}
+.who{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:16px 0 14px}
+.who[hidden]{display:none}
+.field{display:flex;flex-direction:column;gap:5px}
+select,input[type=text]{background:#0b1119;border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:160px}
+input[type=text]::placeholder{color:#56657a}
+.btn{border:1px solid var(--line);background:#141c28;border-radius:8px;padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:13px;text-decoration:none;display:inline-block}
+.btn:hover{border-color:var(--amber);color:var(--amber)}
+.btn.primary{background:var(--amber);color:#1a1205;border-color:var(--amber);font-weight:700}
+#zone{border:1px dashed #2c3a4f;border-radius:12px;padding:22px 16px 16px;cursor:text;transition:border-color .2s,box-shadow .2s;background:#0a1018;outline:none}
+#zone.armed{border:1px solid var(--amber);box-shadow:0 0 0 4px rgba(255,179,71,.08),inset 0 0 40px rgba(255,179,71,.05)}
+#zone.shake{animation:shake .35s}
+#zone.busy{opacity:.6}
+@keyframes shake{20%{transform:translateX(-7px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+.slots{display:flex;gap:7px;justify-content:center;flex-wrap:wrap}
+.slot{width:46px;height:58px;border:1px solid var(--line);border-radius:9px;display:grid;place-items:center;font-family:var(--mono);font-size:24px;color:#3c4a5e;background:#0d141e;transition:all .12s}
+.slot.wide{width:62px;font-size:20px}
+.slot.next{border-color:var(--amber);color:#9a7a4a}
+#zone:not(.armed) .slot.next{border-color:var(--line);color:#3c4a5e}
+.slot.done{color:#1a1205;background:var(--amber);border-color:var(--amber);box-shadow:0 0 18px rgba(255,179,71,.35)}
+.slot.held{transform:translateY(3px) scale(.96)}
+.slot.bad{background:var(--bad);border-color:var(--bad);color:#fff}
+.hint{text-align:center;margin-top:14px;font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.hint kbd{font-family:var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;color:var(--ink);background:#141c28}
+#msg{min-height:22px;margin:10px 2px 0;font-family:var(--mono);font-size:12.5px}
+#msg.err{color:var(--bad)} #msg.good{color:var(--ok)} #msg.info{color:var(--muted)}
+.rollhead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 8px}
+.legend{display:flex;gap:14px;font-family:var(--mono);font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+.legend i{display:inline-block;width:18px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle}
+#roll{width:100%;height:270px;display:block;border-radius:10px;background:#070b11;border:1px solid var(--line)}
+.result{display:flex;flex-direction:column;gap:14px}
+.verdict{border-radius:12px;padding:16px 18px;border:1px solid var(--line);background:#0b1119}
+.verdict.pass{border-color:rgba(93,252,155,.55);background:linear-gradient(135deg,rgba(93,252,155,.12),rgba(93,252,155,.02))}
+.verdict.fail{border-color:rgba(255,90,106,.6);background:linear-gradient(135deg,rgba(255,90,106,.14),rgba(255,90,106,.02))}
+.verdict .big{font-family:var(--display);font-weight:900;font-size:44px;line-height:.95;letter-spacing:.03em;text-transform:uppercase}
+.verdict.pass .big{color:var(--ok)} .verdict.fail .big{color:var(--bad)}
+.verdict .sub{color:var(--muted);margin-top:6px}
+.verdict.idle .big{color:var(--ink);font-size:34px}
+.gaugeRow{display:grid;grid-template-columns:190px minmax(0,1fr);gap:14px;align-items:center}
+.gaugeRow > svg{width:100%;max-width:190px;height:auto;display:block}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:#0b1119}
+.stat .v{font-family:var(--mono);font-size:19px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.stat .k{font-size:11.5px;color:var(--muted);line-height:1.3}
+.chartBox{border:1px solid var(--line);border-radius:10px;background:#070b11;padding:8px}
+.chartBox svg{width:100%;height:auto;display:block}
+.steps{margin:0;padding-left:20px;color:var(--muted)} .steps li{margin:6px 0} .steps b{color:var(--ink);font-weight:600}
+.lower{display:grid;grid-template-columns:1.25fr 1fr;gap:18px;margin-top:18px}
+#pca{width:100%;height:auto;display:block;background:#070b11;border:1px solid var(--line);border-radius:10px;margin-top:12px}
+.cap{color:var(--muted);font-size:13.5px;margin:10px 0 0;max-width:70ch}
+.side{display:flex;flex-direction:column;gap:18px}
+.users{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.users li{display:grid;grid-template-columns:14px 1fr auto auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:#0b1119}
+.sw{width:12px;height:12px;border-radius:3px}
+.uname{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-family:var(--mono);font-size:10.5px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:1px 6px;margin-left:6px;font-weight:400}
+.meter{display:flex;gap:2px}
+.meter span{width:5px;height:14px;border-radius:1px;background:#1f2a3a}
+.meter span.on{background:var(--cyan)}
+.count{font-family:var(--mono);font-size:12px;color:var(--muted);min-width:56px;text-align:right}
+.del{border:0;background:transparent;color:var(--muted);cursor:pointer;font-family:var(--mono);font-size:12px;padding:3px 6px;border-radius:5px}
+.del:hover{color:var(--bad)} .del.confirm{color:#fff;background:var(--bad)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.setting{margin-top:14px}
+.setting .top2{display:flex;justify-content:space-between;align-items:baseline}
+.setting output{font-family:var(--mono);color:var(--amber)}
+input[type=range]{width:100%;accent-color:var(--amber);margin-top:6px}
+.errs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.note{font-size:12.5px;color:var(--muted);margin-top:8px}
+.section{margin:34px 0 10px}
+.section h2{font-family:var(--display);font-weight:900;font-size:40px;text-transform:uppercase;letter-spacing:.02em}
+.section .lede{color:var(--muted);max-width:70ch;margin:6px 0 0}
+.pipe{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px}
+.pipe div{border-top:2px solid var(--amber);padding:12px 2px 0}
+.pipe div:nth-child(2){border-color:var(--cyan)} .pipe div:nth-child(3){border-color:#b69cff} .pipe div:nth-child(4){border-color:var(--ok)}
+.pipe h3{font-family:var(--mono);font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+.pipe p{margin:0;color:var(--muted);font-size:14px}
+.figs{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:14px}
+.fig{border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden;cursor:zoom-in;padding:0;text-align:left}
+.fig img{display:block;width:100%;height:170px;object-fit:contain;background:#fff}
+.fig span{display:block;background:var(--panel);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px 10px;border-top:1px solid var(--line)}
+.fig:hover{border-color:var(--amber)}
+.empty{border:1px dashed var(--line);border-radius:12px;padding:18px;color:var(--muted);font-family:var(--mono);font-size:13px;margin-top:14px}
+.empty code{color:var(--amber)}
+footer{color:#5b6a80;font-size:12.5px;padding:24px 0 40px;font-family:var(--mono)}
+.modal{position:fixed;inset:0;background:rgba(3,6,10,.85);display:grid;place-items:center;padding:20px;z-index:20;cursor:zoom-out}
+.modal[hidden]{display:none}
+.modal img{max-width:min(1200px,100%);max-height:85vh;background:#fff;border-radius:10px}
+.modal p{color:var(--ink);font-family:var(--mono);text-align:center;margin:10px 0 0}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);opacity:0;background:#141c28;border:1px solid var(--amber);color:var(--ink);padding:9px 16px;border-radius:9px;font-family:var(--mono);font-size:13px;transition:all .25s;pointer-events:none;z-index:30}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (max-width:980px){.hero,.console,.lower{grid-template-columns:1fr}.pipe{grid-template-columns:1fr 1fr}}
+@media (max-width:520px){.slot{width:36px;height:48px;font-size:19px}.slot.wide{width:48px}.gaugeRow{grid-template-columns:1fr}.pipe{grid-template-columns:1fr}.stats{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><span class="dot"></span>KEYPRINT</div>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <section class="hero">
+    <h1>Your password can leak.<br><span class="a">Your rhythm can't.</span></h1>
+    <p>KeyPrint records <strong>how</strong> you type the password <strong>.tie5Roanl</strong>: how long each key is held and the gap before the next one. Enroll a few times, then let a friend try the same password. KNN, PCA and logistic regression, running in Python with scikit-learn, decide who is really typing. Needs a physical keyboard.</p>
+  </section>
+
+  <main class="console">
+    <section class="panel" aria-label="Typing capture">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" id="tab-enroll" aria-selected="true">1 · Enroll</button>
+        <button class="tab" role="tab" id="tab-login" aria-selected="false">2 · Log in</button>
+      </div>
+      <div class="who" id="who-enroll">
+        <div class="field"><label class="label" for="enrollSel">Typist</label><select id="enrollSel"></select></div>
+        <div class="field"><label class="label" for="newName">Add a new typist</label><input type="text" id="newName" placeholder="e.g. Aarav" maxlength="24"></div>
+        <button class="btn" id="addBtn">Add</button>
+      </div>
+      <div class="who" id="who-login" hidden>
+        <div class="field"><label class="label" for="claimSel">Log in as</label><select id="claimSel"></select></div>
+        <div class="note" style="margin:0 0 8px">Hand the keyboard to a friend, pick your name, and let them try.</div>
+      </div>
+      <div id="zone" tabindex="0" aria-label="Typing area. Type the password then press Enter.">
+        <div class="slots" id="slots"></div>
+        <div class="hint" id="hint"></div>
+      </div>
+      <div id="msg" class="info" role="status"></div>
+      <div class="rollhead">
+        <span class="label">Keystroke trace · time in ms</span>
+        <div class="legend"><span><i style="background:var(--amber)"></i>this attempt</span><span><i style="background:rgba(94,230,255,.35);border:1px solid var(--cyan)"></i>stored rhythm</span></div>
+      </div>
+      <canvas id="roll"></canvas>
+    </section>
+    <section class="panel result" id="result" aria-live="polite"></section>
+  </main>
+
+  <section class="lower">
+    <div class="panel">
+      <h2>Typist map</h2>
+      <svg id="pca" viewBox="0 0 640 420" role="img" aria-label="PCA scatter of all typing samples"></svg>
+      <p class="cap" id="pcaCap"></p>
+    </div>
+    <div class="side">
+      <div class="panel">
+        <h2>Typists</h2>
+        <ul class="users" id="users"></ul>
+        <div class="row"><a class="btn" href="/api/export.csv">Download group data (CSV)</a></div>
+        <p class="note">The CSV uses the same 31 columns as the CMU dataset, so the notebook can test the models on your group's typing.</p>
+      </div>
+      <div class="panel">
+        <h2>Model settings</h2>
+        <div class="setting">
+          <div class="top2"><label class="label" for="kRange">KNN neighbours (K)</label><output id="kOut"></output></div>
+          <input type="range" id="kRange" min="1" max="15" step="2">
+        </div>
+        <div class="setting">
+          <div class="top2"><label class="label" for="zRange">Strictness</label><output id="zOut"></output></div>
+          <input type="range" id="zRange" min="0.5" max="4" step="0.1">
+          <div class="note">Lower = stricter. Threshold = average of your own leave-one-out distances + this many standard deviations.</div>
+        </div>
+        <div class="errs" id="errs"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>How it decides</h2>
+    <div class="pipe">
+      <div><h3>1 · Capture</h3><p>11 keys give 31 timings in seconds: 11 hold times (H), 10 press-to-press gaps (DD) and 10 release-to-press gaps (UD).</p></div>
+      <div><h3>2 · Scale</h3><p>Each timing is standardised (z-score) so one slow key can't dominate the distances KNN and PCA use.</p></div>
+      <div><h3>3 · Compare</h3><p>Scaled Manhattan distance to your stored profile, a KNN vote among every stored attempt, and a logistic regression probability.</p></div>
+      <div><h3>4 · Decide</h3><p>Distance below your threshold means access granted. Moving the threshold trades false rejects (FRR) for false accepts (FAR).</p></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Experiment results</h2>
+    <p class="lede">Graphs from the full study on the CMU dataset (51 people × 400 attempts). Click one to enlarge.</p>
+    <div id="figs"></div>
+  </section>
+  <footer>KeyPrint · UML501 Machine Learning Lab project · ML runs in Python (Flask + scikit-learn) · dataset: Killourhy &amp; Maxion (2009), CMU</footer>
+</div>
+
+<div class="modal" id="lightbox" hidden><div><img id="lbImg" alt=""><p id="lbCap"></p></div></div>
+<div id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+// ---------------- constants ----------------
+const PHRASE=['.','t','i','e','5','R','o','a','n','l','Enter'];
+const GLYPH =['.','t','i','e','5','R','o','a','n','l','⏎'];
+const KIND=[],FKEY=[];
+for(let i=0;i<11;i++){KIND.push('H');FKEY.push(i);if(i<10){KIND.push('DD');FKEY.push(i);KIND.push('UD');FKEY.push(i);}}
+const D=31;
+const PALETTE=['#5ee6ff','#ff7ab6','#b69cff','#7dffb2','#ff8a5b','#6ea8ff','#e0ff6e','#ff5ee8'];
+const CMU_COLOR='#4a586c';
+
+// ---------------- state ----------------
+let ST={users:[],min_samples:5,background:{loaded:false,people:0,samples:0},figures:[],features:[]};
+let S={mode:'enroll',enrollName:null,claimName:null,K:5,z:2.0};
+try{const o=JSON.parse(localStorage.getItem('keyprint.settings')||'{}');if(o.K)S.K=o.K;if(o.z)S.z=o.z;}catch(e){}
+const profiles={};           // name -> profile info from the server
+let PCA={points:[],explained:[0,0]};
+let lastResult=null,lastLoginEvents=null,lastEvents=null,busy=false;
+const cap={events:[],idx:0,raf:0};
+
+// ---------------- helpers ----------------
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(t){const el=$('toast');el.textContent=t;el.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove('show'),2200);}
+function setMsg(t,cls){const m=$('msg');m.textContent=t;m.className=cls||'info';}
+function saveSettings(){try{localStorage.setItem('keyprint.settings',JSON.stringify({K:S.K,z:S.z}));}catch(e){}}
+function colorFor(name){if(String(name).startsWith('CMU '))return CMU_COLOR;const i=ST.users.findIndex(u=>u.name===name);return PALETTE[(i<0?0:i)%PALETTE.length];}
+const userBy=n=>ST.users.find(u=>u.name===n);
+
+async function api(path,opts){
+  const o=opts||{};
+  const r=await fetch(path,{method:o.method||'GET',headers:o.body?{'Content-Type':'application/json'}:{},body:o.body?JSON.stringify(o.body):undefined});
+  let data={};try{data=await r.json();}catch(e){}
+  if(!r.ok)throw new Error(data.error||`Server error (${r.status})`);
+  return data;
+}
+
+// turn a 31-feature row back into key bars for drawing the stored rhythm
+function featsToEvents(f){const ev=[];let p=0,t=0;for(let i=0;i<11;i++){const H=f[p++]*1000;ev.push({down:t,up:t+H});if(i<10){const DD=f[p++]*1000;p++;t+=DD;}}return ev;}
+
+// ---------------- loading data from the server ----------------
+async function loadState(){
+  ST=await api('/api/state');
+  const names=ST.users.map(u=>u.name);
+  if(!names.includes(S.enrollName))S.enrollName=names[0]||null;
+  const ready=ST.users.filter(u=>u.ready).map(u=>u.name);
+  if(!ready.includes(S.claimName))S.claimName=ready[0]||null;
+}
+async function loadProfile(name){if(!name)return;try{profiles[name]=await api(`/api/profile?name=${encodeURIComponent(name)}&z=${S.z}`);}catch(e){}}
+async function loadPCA(){try{PCA=await api('/api/pca');}catch(e){PCA={points:[],explained:[0,0]};}}
+async function refresh(){
+  try{await loadState();}catch(e){setMsg('Cannot reach the Python server. Is "python app/server.py" running?','err');return;}
+  await Promise.all([loadProfile(ghostName()),loadPCA()]);
+  renderAll();
+}
+
+// ---------------- capture (records key down/up times) ----------------
+const IGNORE=new Set(['Shift','CapsLock','Control','Alt','Meta','AltGraph','Fn','OS']);
+function resetCapture(){cap.events=[];cap.idx=0;renderSlots();}
+function fail(text,badIdx){
+  const z=$('zone');z.classList.remove('shake');void z.offsetWidth;z.classList.add('shake');setMsg(text,'err');
+  if(badIdx!=null){renderSlots(badIdx);setTimeout(resetCapture,450);}else resetCapture();
+  cap.events=[];cap.idx=0;
+}
+function onKeyDown(e){
+  if(e.key==='Tab'||IGNORE.has(e.key))return;
+  e.preventDefault();
+  if(e.repeat||busy)return;
+  if(e.key==='Backspace'){fail('Restarted. Type the whole password in one go.');return;}
+  if(e.key==='Escape'){resetCapture();setMsg('Cleared.','info');return;}
+  if(cap.idx>=11)return;
+  const exp=PHRASE[cap.idx];
+  if(e.key!==exp){
+    let t=`Wrong key: expected "${exp}"${exp==='R'?' (Shift + r)':''}. Start again from "."`;
+    if(e.getModifierState&&e.getModifierState('CapsLock'))t='Caps Lock is on. Turn it off and start again.';
+    fail(t,cap.idx);return;
+  }
+  const t=performance.now();
+  if(cap.idx>0&&t-cap.events[cap.idx-1].down>4000){fail('Too long a pause. Type it in one smooth go.');return;}
+  cap.events.push({key:e.key,code:e.code,down:t,up:null});cap.idx++;
+  if(cap.idx===1)setMsg('Recording…','info');
+  lastEvents=cap.events;renderSlots();startRaf();
+}
+function onKeyUp(e){
+  const ev=[...cap.events].reverse().find(x=>x.code===e.code&&x.up===null);
+  if(!ev)return;ev.up=performance.now();renderSlots();
+  if(cap.idx===11&&cap.events.every(x=>x.up!==null))finish();
+}
+async function finish(){
+  const t0=cap.events[0].down;
+  const events=cap.events.map(e=>({key:e.key,down:+(e.down-t0).toFixed(2),up:+(e.up-t0).toFixed(2)}));
+  lastEvents=cap.events.slice();cap.events=[];cap.idx=0;setTimeout(renderSlots,500);
+  busy=true;$('zone').classList.add('busy');
+  try{if(S.mode==='enroll')await doEnroll(events);else await doLogin(events);}
+  catch(err){setMsg(err.message,'err');}
+  finally{busy=false;$('zone').classList.remove('busy');}
+}
+
+async function doEnroll(events){
+  const name=S.enrollName;if(!name)throw new Error('Add or pick a typist first.');
+  const r=await api('/api/enroll',{method:'POST',body:{name,events,z:S.z}});
+  profiles[name]=r.profile;
+  lastResult={type:'enroll',name,features:r.features,profile:r.profile};
+  const n=r.profile.n,min=ST.min_samples;
+  setMsg(n<min?`Sample ${n} saved for ${name}. ${min-n} more to unlock login.`:`Sample ${n} saved for ${name}. Profile ready.`,'good');
+  if(n===min){S.claimName=name;toast(`${name} can now log in`);}
+  await loadState();await loadPCA();renderAll();
+}
+async function doLogin(events){
+  if(!S.claimName)throw new Error('Nobody has 5 enrolled attempts yet. Enroll first.');
+  lastLoginEvents=events;
+  const r=await api('/api/login',{method:'POST',body:{claim:S.claimName,events,k:S.K,z:S.z}});
+  lastResult={type:'login',...r};profiles[r.claim]=r.profile;
+  setMsg(r.granted?`Rhythm matches ${r.claim}. Access granted.`:`Rhythm does not match ${r.claim}. Access denied.`,r.granted?'good':'err');
+  renderAll();
+}
+let rerunT=0;
+function rerunLogin(){clearTimeout(rerunT);rerunT=setTimeout(async()=>{
+  const name=ghostName();await loadProfile(name);
+  if(lastResult&&lastResult.type==='login'&&lastLoginEvents){try{const r=await api('/api/login',{method:'POST',body:{claim:lastResult.claim,events:lastLoginEvents,k:S.K,z:S.z}});lastResult={type:'login',...r};}catch(e){}}
+  renderAll();},200);}
+
+// ---------------- rendering: slots + trace ----------------
+function renderSlots(badIdx){
+  let h='';
+  for(let i=0;i<11;i++){let c='slot'+(i===10?' wide':'');const e=cap.events[i];
+    if(badIdx===i)c+=' bad';else if(e){c+=' done';if(e.up===null)c+=' held';}else if(i===cap.idx)c+=' next';
+    h+=`<div class="${c}">${GLYPH[i]}</div>`;}
+  $('slots').innerHTML=h;
+}
+function renderHint(){
+  const z=$('zone'),armed=document.activeElement===z;z.classList.toggle('armed',armed);
+  $('hint').innerHTML=armed?`Type <kbd>.tie5Roanl</kbd> then <kbd>Enter</kbd>. <kbd>Backspace</kbd> restarts.`:`Click here to start recording, then type <kbd>.tie5Roanl</kbd> and press <kbd>Enter</kbd>.`;
+  renderSlots();
+}
+const roll=$('roll'),rctx=roll.getContext('2d');
+function ghostName(){return S.mode==='enroll'?S.enrollName:S.claimName;}
+function sizeRoll(){const r=roll.getBoundingClientRect(),dpr=window.devicePixelRatio||1;roll.width=Math.max(1,r.width*dpr);roll.height=Math.max(1,r.height*dpr);rctx.setTransform(dpr,0,0,dpr,0,0);drawRoll();}
+function drawRoll(){
+  const W=roll.clientWidth,H=roll.clientHeight;if(!W)return;rctx.clearRect(0,0,W,H);
+  const padL=34,padR=12,padT=10,padB=24,rows=11,rh=(H-padT-padB)/rows;
+  const p=profiles[ghostName()];const ghost=p&&p.mean?featsToEvents(p.mean):null;
+  const now=performance.now();let live=null;
+  if(lastEvents&&lastEvents.length){const t0=lastEvents[0].down;live=lastEvents.map(e=>({down:e.down-t0,up:(e.up===null?now:e.up)-t0,held:e.up===null}));}
+  let maxT=1600;if(ghost)maxT=Math.max(maxT,ghost[10].up+150);if(live)maxT=Math.max(maxT,live[live.length-1].up+200);
+  const x=t=>padL+(t/maxT)*(W-padL-padR);
+  rctx.font='10px "JetBrains Mono", monospace';rctx.textBaseline='middle';
+  const step=maxT>4000?1000:maxT>2000?500:250;
+  for(let t=0;t<=maxT;t+=step){rctx.strokeStyle=t%1000===0?'rgba(94,230,255,.12)':'rgba(94,230,255,.05)';rctx.beginPath();rctx.moveTo(x(t),padT);rctx.lineTo(x(t),H-padB);rctx.stroke();rctx.fillStyle='#56657a';rctx.textAlign='center';rctx.fillText(t,x(t),H-padB+12);}
+  for(let i=0;i<rows;i++){const y=padT+i*rh;rctx.fillStyle='#8796ab';rctx.textAlign='center';rctx.fillText(GLYPH[i],padL/2,y+rh/2);}
+  const bar=(r,a,b,fill,stroke,glow)=>{const y=padT+r*rh+rh*.2,h=rh*.6,w=Math.max(2,x(b)-x(a));rctx.save();if(glow){rctx.shadowColor=fill;rctx.shadowBlur=12;}rctx.fillStyle=fill;rctx.beginPath();if(rctx.roundRect)rctx.roundRect(x(a),y,w,h,3);else rctx.rect(x(a),y,w,h);rctx.fill();if(stroke){rctx.strokeStyle=stroke;rctx.lineWidth=1;rctx.stroke();}rctx.restore();};
+  if(ghost)ghost.forEach((e,i)=>bar(i,e.down,e.up,'rgba(94,230,255,.16)','rgba(94,230,255,.7)',false));
+  if(live){rctx.strokeStyle='rgba(255,179,71,.35)';rctx.setLineDash([3,3]);rctx.beginPath();live.forEach((e,i)=>{const y=padT+i*rh+rh/2;if(i===0)rctx.moveTo(x(e.down),y);else rctx.lineTo(x(e.down),y);});rctx.stroke();rctx.setLineDash([]);live.forEach((e,i)=>bar(i,e.down,e.up,e.held?'#ffd08a':'#ffb347',null,true));}
+  if(!live&&!ghost){rctx.fillStyle='#56657a';rctx.textAlign='center';rctx.font='12px "JetBrains Mono", monospace';rctx.fillText('Your keystrokes will draw here',W/2,H/2);}
+}
+function startRaf(){if(cap.raf)return;const loop=()=>{drawRoll();if(cap.events.length&&cap.events.some(e=>e.up===null))cap.raf=requestAnimationFrame(loop);else{cap.raf=0;drawRoll();}};cap.raf=requestAnimationFrame(loop);}
+
+// ---------------- rendering: charts ----------------
+function gaugeSVG(pct,color){
+  const cx=95,cy=96,r=74,pt=a=>[cx+r*Math.cos(a),cy-r*Math.sin(a)];
+  const [x0,y0]=pt(Math.PI),[x1,y1]=pt(0),end=Math.PI-Math.PI*Math.max(.5,pct)/100,[xe,ye]=pt(end);
+  return `<svg viewBox="0 0 190 120" aria-label="Match ${pct.toFixed(0)} percent"><path d="M${x0} ${y0} A${r} ${r} 0 0 1 ${x1} ${y1}" stroke="#1d2735" stroke-width="14" fill="none" stroke-linecap="round"/><path d="M${x0} ${y0} A${r} ${r} 0 0 1 ${xe} ${ye}" stroke="${color}" stroke-width="14" fill="none" stroke-linecap="round" style="filter:drop-shadow(0 0 6px ${color})"/><text x="${cx}" y="${cy-8}" text-anchor="middle" fill="#e7edf5" font-family="JetBrains Mono, monospace" font-size="30" font-weight="700">${pct.toFixed(0)}%</text><text x="${cx}" y="${cy+12}" text-anchor="middle" fill="#8796ab" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1.5">RHYTHM MATCH</text></svg>`;
+}
+function rhythmSVG(f,mu,a){
+  const W=760,H=240,pl=46,pr=10,pt=14,pb=46;
+  const lo=mu.map((m,j)=>m-a[j]),hi=mu.map((m,j)=>m+a[j]);
+  let ymin=Math.min(0,...lo,...f),ymax=Math.max(...hi,...f);ymax+=(ymax-ymin)*.08;
+  const X=j=>pl+j*(W-pl-pr)/(D-1),Y=v=>pt+(1-(v-ymin)/(ymax-ymin))*(H-pt-pb);
+  let g='';const tick=ymax>1?.25:ymax>.5?.1:.05;
+  for(let v=Math.ceil(ymin/tick)*tick;v<=ymax;v+=tick)g+=`<line x1="${pl}" x2="${W-pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="${Math.abs(v)<1e-9?'#33425a':'#151e2b'}"/><text x="${pl-6}" y="${Y(v)+3}" fill="#56657a" font-size="10" text-anchor="end">${Math.round(v*1000)}</text>`;
+  const band='M'+hi.map((v,j)=>`${X(j)},${Y(v)}`).join(' L')+' L'+lo.map((v,j)=>`${X(j)},${Y(v)}`).reverse().join(' L')+' Z';
+  const mline=mu.map((v,j)=>`${X(j)},${Y(v)}`).join(' '),aline=f.map((v,j)=>`${X(j)},${Y(v)}`).join(' ');
+  const kc={H:'#ffb347',DD:'#5ee6ff',UD:'#b69cff'};let dots='',labels='',strip='';
+  f.forEach((v,j)=>{const off=Math.abs(v-mu[j])/a[j]>2.5;
+    dots+=`<circle cx="${X(j)}" cy="${Y(v)}" r="${off?4.2:3}" fill="${off?'#ff5a6a':'#ffb347'}"><title>${esc(ST.features[j]||'')}: ${Math.round(v*1000)} ms (profile ${Math.round(mu[j]*1000)} ms)</title></circle>`;
+    strip+=`<rect x="${X(j)-6}" y="${H-pb+8}" width="12" height="4" rx="1" fill="${kc[KIND[j]]}" opacity=".75"/>`;
+    if(KIND[j]==='H')labels+=`<text x="${X(j)}" y="${H-pb+26}" fill="#8796ab" font-size="11" text-anchor="middle">${esc(GLYPH[FKEY[j]])}</text>`;});
+  return `<svg viewBox="0 0 ${W} ${H}" font-family="JetBrains Mono, monospace" role="img" aria-label="Attempt timings compared with stored profile">${g}<path d="${band}" fill="rgba(94,230,255,.13)"/><polyline points="${mline}" fill="none" stroke="#5ee6ff" stroke-width="1.2" stroke-dasharray="4 3" opacity=".8"/><polyline points="${aline}" fill="none" stroke="#ffb347" stroke-width="2" style="filter:drop-shadow(0 0 4px rgba(255,179,71,.6))"/>${dots}${strip}${labels}<text x="${pl}" y="${H-4}" fill="#56657a" font-size="10">ms · 31 features: hold (H) <tspan fill="#ffb347">■</tspan> press→press (DD) <tspan fill="#5ee6ff">■</tspan> release→press (UD) <tspan fill="#b69cff">■</tspan> · red = far outside the band</text></svg>`;
+}
+
+// ---------------- rendering: result panel ----------------
+function renderResult(){
+  const el=$('result'),r=lastResult,min=ST.min_samples;
+  const show=r&&((r.type==='enroll'&&S.mode==='enroll')||(r.type==='login'&&S.mode==='login'));
+  if(!show){
+    if(S.mode==='enroll'){
+      const u=userBy(S.enrollName);
+      el.innerHTML=`<div class="verdict idle"><div class="label">Enrollment</div><div class="big">Teach it your rhythm</div><div class="sub">${u?`${esc(u.name)} has ${u.n} of ${min} required attempts. 10 or more gives a sharper profile.`:'Add a typist to begin.'}</div></div>
+      <ol class="steps"><li><b>Add a typist</b> (your name) on the left.</li><li><b>Click the typing area</b> and type <b>.tie5Roanl</b> then Enter, at your natural speed.</li><li><b>Repeat 5 to 10 times.</b> Each attempt becomes one row of 31 timings, saved by Python in data/app_users.csv.</li><li>Switch to <b>Log in</b> and let a friend try your password.</li></ol>`;
+    }else{
+      const p=profiles[S.claimName];
+      el.innerHTML=`<div class="verdict idle"><div class="label">Log in</div><div class="big">Prove it's really you</div><div class="sub">${S.claimName?`Type the password as ${esc(S.claimName)}. Your rhythm is compared with ${p?p.n:'their'} stored attempts.`:`Nobody has ${min} enrolled attempts yet. Enroll first.`}</div></div>
+      ${p&&p.mean?`<div class="chartBox"><div class="label" style="padding:4px 6px">${esc(S.claimName)}'s stored rhythm · mean ± typical spread</div>${rhythmSVG(p.mean,p.mean,p.spread)}</div>`:''}`;
+    }
+    return;
+  }
+  if(r.type==='enroll'){
+    const p=r.profile,n=p.n,hold=r.features.filter((_,j)=>KIND[j]==='H').reduce((s,v)=>s+v,0)/11*1000,total=featsToEvents(r.features)[10].up;
+    el.innerHTML=`<div class="verdict pass"><div class="label">Sample saved</div><div class="big">#${n} for ${esc(r.name)}</div><div class="sub">${n<min?`${min-n} more before login unlocks.`:`Profile ready. Consistency score ${p.consistency.toFixed(2)} (lower means you type more consistently).`}</div></div>
+    <div class="stats"><div class="stat"><div class="v">${Math.round(hold)} ms</div><div class="k">average key hold</div></div><div class="stat"><div class="v">${Math.round(total)} ms</div><div class="k">total time for the password</div></div></div>
+    ${p.mean?`<div class="chartBox"><div class="label" style="padding:4px 6px">This attempt vs ${esc(r.name)}'s profile so far</div>${rhythmSVG(r.features,p.mean,p.spread)}</div>`:''}`;
+    return;
+  }
+  const color=r.granted?'#5dfc9b':'#ff5a6a',k=r.knn,lr=r.logreg,p=r.profile;
+  el.innerHTML=`<div class="verdict ${r.granted?'pass':'fail'}"><div class="label">Logging in as ${esc(r.claim)}</div><div class="big">${r.granted?'Access granted':'Access denied'}</div><div class="sub">${r.granted?'Your timing sits inside the stored rhythm.':'Right password, wrong rhythm. This looks like someone else typing.'}</div></div>
+  <div class="gaugeRow">${gaugeSVG(r.match,color)}<div class="stats">
+    <div class="stat"><div class="v">${r.score.toFixed(2)} <span style="color:var(--muted);font-size:13px">/ ${r.threshold.toFixed(2)}</span></div><div class="k">distance vs threshold (lower is closer)</div></div>
+    <div class="stat"><div class="v" style="color:${k?colorFor(k.prediction):'inherit'}">${k?esc(k.prediction):'n/a'}</div><div class="k">KNN vote: ${k?`${k.votes} of ${k.k} nearest`:'needs more data'}</div></div>
+    <div class="stat"><div class="v">${lr&&lr.p_claim!=null?(lr.p_claim*100).toFixed(0)+'%':'n/a'}</div><div class="k">logistic regression: P(${esc(r.claim)})${lr?'':' · needs 2+ typists'}</div></div>
+    <div class="stat"><div class="v">${(p.frr*100).toFixed(0)}% · ${p.far==null?'n/a':(p.far*100).toFixed(0)+'%'}</div><div class="k">FRR · FAR at this strictness</div></div>
+  </div></div>
+  <div class="chartBox"><div class="label" style="padding:4px 6px">Attempt vs ${esc(r.claim)}'s stored rhythm</div>${rhythmSVG(r.features,p.mean,p.spread)}</div>`;
+}
+
+// ---------------- rendering: PCA map ----------------
+function renderPCA(){
+  const svg=$('pca');svg.setAttribute('font-family','JetBrains Mono, monospace');
+  if(!PCA.points.length){svg.innerHTML=`<text x="320" y="210" fill="#56657a" text-anchor="middle" font-size="13">Enroll at least 3 attempts to draw the map</text>`;$('pcaCap').textContent='';return;}
+  const W=640,H=420,p=40,r=lastResult&&lastResult.type==='login'&&S.mode==='login'?lastResult:null,att=r&&r.pca?[r.pca.x,r.pca.y]:null;
+  const all=PCA.points.map(q=>[q.x,q.y]);if(att)all.push(att);
+  let x0=Math.min(...all.map(q=>q[0])),x1=Math.max(...all.map(q=>q[0])),y0=Math.min(...all.map(q=>q[1])),y1=Math.max(...all.map(q=>q[1]));
+  const ex=(x1-x0)*.08||1,ey=(y1-y0)*.08||1;x0-=ex;x1+=ex;y0-=ey;y1+=ey;
+  const X=v=>p+(v-x0)/(x1-x0)*(W-2*p),Y=v=>H-p-(v-y0)/(y1-y0)*(H-2*p);
+  let h='';
+  for(let i=0;i<=8;i++){const gx=p+i*(W-2*p)/8,gy=p+i*(H-2*p)/8;h+=`<line x1="${gx}" x2="${gx}" y1="${p}" y2="${H-p}" stroke="#121a26"/><line x1="${p}" x2="${W-p}" y1="${gy}" y2="${gy}" stroke="#121a26"/>`;}
+  const [v1,v2]=PCA.explained.map(v=>v*100);
+  h+=`<text x="${W-p}" y="${H-12}" fill="#8796ab" font-size="11" text-anchor="end">PC1 · ${v1.toFixed(0)}% of variance →</text><text x="14" y="${p-14}" fill="#8796ab" font-size="11">↑ PC2 · ${v2.toFixed(0)}%</text>`;
+  if(att&&r.knn)r.knn.neighbours.forEach(n=>{h+=`<line x1="${X(att[0])}" y1="${Y(att[1])}" x2="${X(n.x)}" y2="${Y(n.y)}" stroke="#ffb347" stroke-dasharray="3 3" opacity=".7"/>`;});
+  PCA.points.filter(q=>q.source==='cmu').forEach(q=>{h+=`<circle cx="${X(q.x)}" cy="${Y(q.y)}" r="3.2" fill="${CMU_COLOR}" fill-opacity=".55"><title>${esc(q.user)}</title></circle>`;});
+  PCA.points.filter(q=>q.source!=='cmu').forEach(q=>{const c=colorFor(q.user);h+=`<circle cx="${X(q.x)}" cy="${Y(q.y)}" r="4.6" fill="${c}" fill-opacity=".9" stroke="#090d13"><title>${esc(q.user)}</title></circle>`;});
+  if(att&&r.knn)r.knn.neighbours.forEach(n=>{h+=`<circle cx="${X(n.x)}" cy="${Y(n.y)}" r="7.5" fill="none" stroke="#ffb347" stroke-width="1.4"/>`;});
+  if(att){const cx=X(att[0]),cy=Y(att[1]);let s='';for(let k=0;k<10;k++){const a=-Math.PI/2+k*Math.PI/5,rr=k%2?5:12;s+=`${cx+rr*Math.cos(a)},${cy+rr*Math.sin(a)} `;}
+    h+=`<polygon points="${s}" fill="#ffb347" style="filter:drop-shadow(0 0 8px rgba(255,179,71,.9))"/><text x="${cx+15}" y="${cy-10}" fill="#ffb347" font-size="11">your attempt</text>`;}
+  svg.innerHTML=h;
+  $('pcaCap').textContent=`PCA squeezes 31 timings into 2 axes that keep ${(v1+v2).toFixed(0)}% of the variation, so each dot is one typing attempt. Coloured dots are your group; grey dots are CMU volunteers. Attempts by the same person cluster together.${att&&r.knn?` Dashed lines join your attempt to its ${r.knn.k} nearest neighbours, measured in the full 31 dimensions.`:' Log in to see where your attempt lands.'}`;
+}
+
+// ---------------- rendering: everything else ----------------
+function renderUsers(){
+  const min=ST.min_samples;
+  let h=ST.users.map(u=>{const on=Math.min(10,u.n);return `<li><span class="sw" style="background:${colorFor(u.name)}"></span><span class="uname">${esc(u.name)}${u.ready?'':`<span class="tag">needs ${min-u.n} more</span>`}</span><span class="meter" title="${u.n} attempts">${Array.from({length:10},(_,i)=>`<span class="${i<on?'on':''}"></span>`).join('')}</span><span style="display:flex;align-items:center;gap:4px"><span class="count">${u.n} rows</span><button class="del" data-del="${esc(u.name)}" aria-label="Delete ${esc(u.name)}">✕</button></span></li>`;}).join('');
+  if(!ST.users.length)h='<li style="grid-template-columns:1fr"><span class="note" style="margin:0">No typists yet. Add your name above.</span></li>';
+  const b=ST.background;
+  h+=b.loaded?`<li><span class="sw" style="background:${CMU_COLOR}"></span><span class="uname">CMU volunteers<span class="tag">dataset</span></span><span></span><span class="count">${b.people} × ${b.samples/b.people}</span></li>`
+             :`<li style="grid-template-columns:1fr"><span class="note" style="margin:0">CMU dataset not found in data/. Add it to compare against 10 background typists (see data/README.md).</span></li>`;
+  $('users').innerHTML=h;
+}
+function renderSelects(){
+  const opt=(u,sel)=>`<option value="${esc(u.name)}"${u.name===sel?' selected':''}>${esc(u.name)} (${u.n})</option>`;
+  $('enrollSel').innerHTML=ST.users.map(u=>opt(u,S.enrollName)).join('')||'<option value="">Add a typist →</option>';
+  const ready=ST.users.filter(u=>u.ready);
+  $('claimSel').innerHTML=ready.map(u=>opt(u,S.claimName)).join('')||'<option value="">Nobody is ready yet</option>';
+}
+function renderChips(){
+  const n=ST.users.length,m=ST.users.reduce((s,u)=>s+u.n,0),b=ST.background;
+  $('chips').innerHTML=`<span class="chip"><b>${n}</b> group typists</span><span class="chip"><b>${m}</b> attempts</span><span class="chip ${b.loaded?'':'warn'}">${b.loaded?`<b>${b.people}</b> CMU volunteers`:'CMU data missing'}</span><span class="chip"><b>31</b> features</span><span class="chip">K = <b>${S.K}</b></span>`;
+}
+function renderSettings(){
+  $('kRange').value=S.K;$('kOut').textContent=S.K;$('zRange').value=S.z;$('zOut').textContent=S.z.toFixed(1)+' σ';
+  const name=ghostName(),p=profiles[name];
+  $('errs').innerHTML=p&&p.threshold!=null?`<div class="stat"><div class="v">${(p.frr*100).toFixed(0)}%</div><div class="k">FRR: ${esc(name)}'s own attempts that would be rejected</div></div><div class="stat"><div class="v">${p.far==null?'n/a':(p.far*100).toFixed(0)+'%'}</div><div class="k">FAR: other people's attempts that would get in as ${esc(name)} (${p.n_others} tried)</div></div>`
+    :`<div class="note" style="grid-column:1/-1">Error rates appear once ${name?esc(name):'the selected typist'} has ${ST.min_samples}+ attempts.</div>`;
+}
+function renderFigs(){
+  const el=$('figs');
+  if(!ST.figures.length){el.innerHTML=`<div class="empty">No graphs yet. In the project folder run <code>python -m src.experiments</code>, then refresh this page.</div>`;return;}
+  el.className='figs';
+  el.innerHTML=ST.figures.map(f=>`<button class="fig" data-src="/figures/${encodeURIComponent(f.file)}" data-title="${esc(f.title)}"><img src="/figures/${encodeURIComponent(f.file)}" alt="${esc(f.title)}"><span>${esc(f.title)}</span></button>`).join('');
+}
+function renderMode(){$('tab-enroll').setAttribute('aria-selected',S.mode==='enroll');$('tab-login').setAttribute('aria-selected',S.mode==='login');$('who-enroll').hidden=S.mode!=='enroll';$('who-login').hidden=S.mode!=='login';}
+function renderAll(){renderMode();renderSelects();renderUsers();renderChips();renderSettings();renderResult();renderPCA();renderFigs();drawRoll();}
+
+// ---------------- events ----------------
+const zone=$('zone');
+zone.addEventListener('keydown',onKeyDown);zone.addEventListener('keyup',onKeyUp);
+zone.addEventListener('focus',renderHint);
+zone.addEventListener('blur',()=>{if(cap.events.length){resetCapture();setMsg('Recording stopped because the typing area lost focus.','info');}renderHint();});
+zone.addEventListener('click',()=>zone.focus());
+$('tab-enroll').onclick=async()=>{S.mode='enroll';await loadProfile(ghostName());renderAll();zone.focus();};
+$('tab-login').onclick=async()=>{S.mode='login';await loadProfile(ghostName());renderAll();zone.focus();};
+$('enrollSel').onchange=async e=>{S.enrollName=e.target.value;lastResult=null;await loadProfile(S.enrollName);renderAll();};
+$('claimSel').onchange=async e=>{S.claimName=e.target.value;lastResult=null;await loadProfile(S.claimName);renderAll();};
+async function addUser(){
+  const name=$('newName').value.trim();
+  if(!name){setMsg('Type a name for the new typist.','err');$('newName').focus();return;}
+  try{await api('/api/users',{method:'POST',body:{name}});}catch(e){setMsg(e.message,'err');return;}
+  $('newName').value='';S.enrollName=name;S.mode='enroll';lastResult=null;
+  setMsg(`${name} added. Click the typing area and enroll ${ST.min_samples} attempts.`,'good');await refresh();
+}
+$('addBtn').onclick=addUser;
+$('newName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addUser();}});
+$('users').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-del]');if(!b)return;
+  if(!b.classList.contains('confirm')){b.classList.add('confirm');b.textContent='Delete?';setTimeout(()=>{if(b.isConnected){b.classList.remove('confirm');b.textContent='✕';}},2500);return;}
+  const name=b.dataset.del;
+  try{await api(`/api/users/${encodeURIComponent(name)}`,{method:'DELETE'});}catch(err){setMsg(err.message,'err');return;}
+  delete profiles[name];if(lastResult&&(lastResult.name===name||lastResult.claim===name))lastResult=null;
+  toast(`${name} deleted`);await refresh();
+});
+$('kRange').oninput=e=>{S.K=+e.target.value;saveSettings();renderSettings();renderChips();rerunLogin();};
+$('zRange').oninput=e=>{S.z=+e.target.value;saveSettings();renderSettings();rerunLogin();};
+$('figs').addEventListener('click',e=>{const b=e.target.closest('.fig');if(!b)return;$('lbImg').src=b.dataset.src;$('lbImg').alt=b.dataset.title;$('lbCap').textContent=b.dataset.title;$('lightbox').hidden=false;});
+$('lightbox').onclick=()=>{$('lightbox').hidden=true;};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')$('lightbox').hidden=true;});
+window.addEventListener('resize',sizeRoll);
+
+// ---------------- start ----------------
+renderHint();sizeRoll();setMsg('Connecting to the Python server…','info');
+refresh().then(()=>{if($('msg').className!=='err')setMsg('Ready. Click the typing area to start.','info');});
+})();
+</script>
+</body>
+</html>

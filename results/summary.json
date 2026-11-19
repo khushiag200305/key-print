@@ -1,0 +1,71 @@
+{
+  "best_k": 9,
+  "pca_components": 25,
+  "best_model": "KNN K=9, scaled",
+  "final_test": [
+    {
+      "model": "Baseline: KNN K=1, no scaling",
+      "accuracy": 0.746078431372549,
+      "macro_f1": 0.7379321973817801,
+      "fit_seconds": 0.019783329000347294,
+      "predict_seconds": 0.6623526879993733
+    },
+    {
+      "model": "KNN K=9, scaled",
+      "accuracy": 0.7780392156862745,
+      "macro_f1": 0.7691597528843996,
+      "fit_seconds": 0.03457442700073443,
+      "predict_seconds": 0.680308277000222
+    },
+    {
+      "model": "PCA (25) + KNN K=9",
+      "accuracy": 0.7780392156862745,
+      "macro_f1": 0.7691597528843996,
+      "fit_seconds": 0.06182180200084986,
+      "predict_seconds": 0.33082656799979304
+    },
+    {
+      "model": "Logistic regression, no scaling",
+      "accuracy": 0.6221568627450981,
+      "macro_f1": 0.5970424714496904,
+      "fit_seconds": 2.3218513350002468,
+      "predict_seconds": 0.0022614509998675203
+    },
+    {
+      "model": "Logistic regression, scaled",
+      "accuracy": 0.7568627450980392,
+      "macro_f1": 0.7505844493615942,
+      "fit_seconds": 2.899193614000069,
+      "predict_seconds": 0.003105207999396953
+    }
+  ],
+  "verification": [
+    {
+      "detector": "scaled_manhattan",
+      "mean_eer": 0.14709803921568626,
+      "std_eer": 0.10776887396682971,
+      "worst_eer": 0.46699999999999997
+    },
+    {
+      "detector": "manhattan",
+      "mean_eer": 0.20817647058823527,
+      "std_eer": 0.11915581494536522,
+      "worst_eer": 0.46499999999999997
+    },
+    {
+      "detector": "euclidean",
+      "mean_eer": 0.23172549019607844,
+      "std_eer": 0.12207556322726883,
+      "worst_eer": 0.514
+    }
+  ],
+  "environment": {
+    "python": "3.12.4",
+    "platform": "macOS-10.16-x86_64-i386-64bit",
+    "processor": "i386",
+    "numpy": "1.26.4",
+    "pandas": "2.2.2",
+    "scikit-learn": "1.4.2",
+    "random_state": 42
+  }
+}
